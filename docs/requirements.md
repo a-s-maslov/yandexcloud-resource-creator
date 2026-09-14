@@ -1,178 +1,98 @@
-## Non-functional requirements
+# Project requirements
 
-1. Resulting program must be a CLI written in python. Main file must by main.py. It should use virtual env and has requirements.txt with list of required modules.
-2. It must have README.md with a set of steps to install requirements into virtual env and activate it and run the program
-3. Program must have command line options to send parameters
-4. Program must use logging to stdout for output
+## Purpose
 
+The project is a Python CLI for preparing isolated Yandex Cloud resources for
+workshop participants. Configuration is read from a dotenv file and may be
+overridden with command-line flags.
 
-## Authentication
+## Safety and authentication
 
+- Authentication uses either an authorized service-account key or a short-lived
+  IAM token. The key is preferred when both are configured.
+- Secret files, generated passwords, local environments, and runtime artifacts
+  must be excluded from Git.
+- Every HTTP request has a finite timeout.
+- Mutating batch operations provide a read-only dry-run where applicable.
+- Destructive YDB deletion requires explicit folder IDs and a separate
+  confirmation switch.
+- A failed remote operation makes the command exit with a non-zero status.
 
-Program must use auth from env variable IAM_TOKEN for authentication.
-Specify the IAM token when accessing Yandex Cloud resources via the API. Provide the IAM token in the Authorization header in the following format:
+## Workshop naming
 
-Authorization: Bearer <IAM_token>
+`YC_WORKSHOP_PREFIX` defines the shared namespace. For participant `001`:
 
-## Use cases
+- User: `<prefix>_001@<user-pool-domain>`
+- Folder: `<prefix>-f-001`
+- Serverless or dedicated YDB: `<prefix>-db-001`
+- Dedicated-mode VPC: `<prefix>-vpc-001`
 
-### Create users
+Names are derived from the prefix and participant index. The deprecated
+`YC_USER_PREFIX` name may be accepted as an alias, but conflicting old and new
+values must fail validation.
 
-I want to create users in Yandex Cloud. I want run resulting comannd line program, specify:
-- user pool id 
-- number of users to create
-- domain name to use
+## User provisioning
 
+The `users` operation:
 
-Parameters must be validated:
+1. Resolves the cloud organization and finds or explicitly creates a User Pool.
+2. Validates the complete target username and folder range before mutation.
+3. Creates deterministic local users and copy-friendly random passwords.
+4. Optionally imports a permanent password hash with first-login rotation
+   disabled.
+5. Creates a personal folder and grants the configured folder role.
+6. Grants `resource-manager.clouds.member` for management-console access.
+7. Streams user IDs, usernames, passwords, folder IDs, statuses, and errors to
+   a protected CSV.
 
-user pool id is a string of letters and digits, can not be longer than 32 cannot be empty or ommitted
-number of users can't be zero it is required can't be greater than 100
-domain name must be valid syntaxycally as an internet domain
+User creation is limited to 100 accounts per invocation. Existing target names
+must fail the preflight before the first mutation.
 
-Program must create users using this REST API call
+## Resources for existing users
 
-#### URL
+The `create-folders` operation is intended for accounts whose credentials have
+already been distributed. It must:
 
-POST https://organization-manager.api.cloud.yandex.net/organization-manager/v1/idp/users
+- require the complete expected user range to exist before mutation;
+- never create, update, delete, or reset users;
+- create missing personal folders and reuse existing target folders;
+- grant the configured folder role and cloud membership;
+- write a non-secret resource manifest without passwords;
+- stop promptly after a quota or rate-limit response so it can be resumed later.
 
+## YDB provisioning
 
-#### Body parameters
+The `create-ydb-serverless` operation creates one Serverless database per
+selected workshop folder without VPC resources. User-facing storage limits are
+converted from GiB to bytes, and throttling and provisioned-RCU limits are
+configurable.
 
-{
-  "userpoolId": "string",
-  "username": "string",
-  "fullName": "string",
-  "givenName": "string",
-  "familyName": "string",
-  "email": "string",
-  "phoneNumber": "string",
-  // Includes only one of the fields `passwordSpec`, `passwordHash`
-  "passwordSpec": {
-    "password": "string",
-    "generationProof": "string"
-  },
-  "passwordHash": {
-    "passwordHash": "string",
-    "passwordHashType": "string"
-  },
-  // end of the list of possible fields
-  "isActive": "boolean",
-  "externalId": "string"
-}
+The `create-ydb` operation creates a dedicated database. It reuses a suitable
+VPC with subnets in all required zones or creates a named VPC and three subnets.
 
+Both operations:
 
-#### Response parameters
+- process only folders matching the workshop naming scheme unless explicit
+  folder IDs are supplied;
+- reject explicitly selected folders that do not match the scheme;
+- list existing databases before mutation;
+- skip a folder containing a database of the requested type or generated name;
+- support dry-run without creating networks, subnets, or databases;
+- poll asynchronous operations and report failures.
 
-{
-  "id": "string",
-  "description": "string",
-  "createdAt": "string",
-  "createdBy": "string",
-  "modifiedAt": "string",
-  "done": "boolean",
-  "metadata": {
-    "userId": "string"
-  },
-  // Includes only one of the fields `error`, `response`
-  "error": {
-    "code": "integer",
-    "message": "string",
-    "details": [
-      "object"
-    ]
-  },
-  "response": {
-    "id": "string",
-    "userpoolId": "string",
-    "status": "string",
-    "username": "string",
-    "fullName": "string",
-    "givenName": "string",
-    "familyName": "string",
-    "email": "string",
-    "phoneNumber": "string",
-    "createdAt": "string",
-    "updatedAt": "string",
-    "externalId": "string"
-  }
-  // end of the list of possible fields
-}
+## Other operations
 
+- `delete-ydb` previews and deletes databases only in explicitly selected
+  folders and requires confirmation for live deletion.
+- `reset-password` resets explicitly selected users or all users in a User Pool
+  and streams the new credentials to CSV.
+- `generate-load` creates executable, batched YDB CLI scripts for dedicated
+  databases with storage groups.
 
-#### Last name and first name generation
+## Release quality
 
-Generate a last name and a first name for every user. Last and first name combindation must be unique within a generation session. Use list of names and last names of characters from The lord of rings and war and piece be leo tolstoy. They must be in latin letters
-
-#### Username generation
-
-Username must be generated to be no longer than 12 letters and must be human readable. In a form of generated username concatenated with @ sign and domain parameter.
-
-### Password generation
-
-When creating user use password generated via following api call
-
-REST API 
-
-POST https://organization-manager.api.cloud.yandex.net/organization-manager/v1/idp/users:generatePassword
-
-Response will be like
-
-{
-  "passwordSpec": {
-    "password": "string",
-    "generationProof": "string"
-  }
-}
-
-### Reset passwords
-
-Program must support resetting passwords for users in a userpool.
-
-- If a list of user IDs is provided, reset for those users
-- If not provided, list all users in the userpool and reset for each
-- For each user:
-  - Generate a password via `POST .../v1/idp/users:generatePassword`
-  - Call `POST .../v1/idp/users/{userId}:setOthersPassword` and poll the operation until done
-
-Output results (user id, username, password) to CSV as users are processed.
-
-### Create VPC and YDB database
-
-Program must support creating network infrastructure and YDB databases per folder.
-
-- For each folder, first check if a suitable VPC with subnets across required zones exists; reuse if found
-- If no such VPC exists, create one network and three subnets (zones: ru-central1-a, ru-central1-b, ru-central1-d)
-- Before creating YDB, list existing databases in the folder via `GET https://ydb.api.cloud.yandex.net/ydb/v1/databases`
-- If any database has `storageConfig.storageOptions[*].groupCount > 1`, skip creating a new YDB in that folder
-- Otherwise, create a YDB dedicated database and poll the operation until done
-
-YDB creation must support:
-
-- Processing only folders passed via command line option
-- Skipping folders passed via command line option
-- Up to 5 concurrent create operations with regular polling (2s) and retries on transient errors
-
-### Generate load scripts for YDB
-
-Program must generate bash scripts to run kv workload via ydb CLI for existing YDB databases with storage groups.
-
-Inputs:
-
-- cloud-id (required)
-- folder-ids (optional, comma-separated)
-- skip-folder-ids (optional, comma-separated)
-- batch-size (optional, default 16, 1..32)
-- output-dir (required, existing writable dir)
-
-Behavior:
-
-- Determine folders from folder-ids or list all folders in the cloud
-- Skip folders in skip-folder-ids
-- For the first YDB found in a folder with storage groups (groupCount > 0), generate commands:
-  - `ydb ... workload kv init ... > init-<db_id> 2>&1 &`
-  - `ydb ... workload kv run mixed -t 300 --seconds 3600 > mixed-<db_id> 2>&1 &`
-  - `ydb ... workload kv run select --threads 100 --seconds 3600 --rows 100 > mixed-<db_id> 2>&1 &`
-- Write init commands to `init.bash`, mixed/select to `run-mixed-and-select.bash`
-- Add bash shebang and make scripts executable
-
+- Python 3.9 and 3.12 are tested in CI.
+- Ruff linting, bytecode compilation, and unit tests run on every push and pull
+  request.
+- The README documents installation, configuration, permissions, safe dry-run
+  workflows, output files, and failure behavior.

@@ -1,1 +1,4 @@
-requests>=2.31.0
+requests>=2.31.0,<3
+python-dotenv>=1.0.1,<2
+PyJWT[crypto]>=2.8.0,<3
+pycryptodome>=3.20.0,<4
