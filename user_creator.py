@@ -1142,6 +1142,21 @@ class UserCreator:
         logger.info(f"Listed {len(databases)} YDB databases in folder {folder_id}")
         return databases
 
+    def get_ydb_database(self, database_id: str) -> dict:
+        """Return one YDB database by ID."""
+        url = f"https://ydb.api.cloud.yandex.net/ydb/v1/databases/{database_id}"
+        try:
+            response = self.session.get(url)
+            response.raise_for_status()
+            data = response.json()
+            if "error" in data:
+                raise UserCreationError(
+                    f"Get YDB database failed: {data['error'].get('message', data['error'])}"
+                )
+            return data
+        except requests.exceptions.RequestException as e:
+            raise UserCreationError(f"Get YDB database failed: {e}")
+
     def list_networks(self, folder_id: str) -> list:
         """List all networks in a folder"""
         url = "https://vpc.api.cloud.yandex.net/vpc/v1/networks"
