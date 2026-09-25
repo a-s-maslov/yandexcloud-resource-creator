@@ -480,6 +480,25 @@ class AccessBindingTests(unittest.TestCase):
         binding = payload["accessBindingDeltas"][0]["accessBinding"]
         self.assertEqual(binding["roleId"], "editor")
         self.assertEqual(binding["subject"]["id"], "user-1")
+        self.assertEqual(binding["subject"]["type"], "userAccount")
+
+    def test_folder_role_supports_service_account_subject(self):
+        session = FakeSession()
+        creator = UserCreator("token", session=session)
+        creator.poll_operation = lambda operation_id, description: {}
+
+        creator.update_folder_access(
+            "folder-1",
+            "service-account-1",
+            "vpc.privateAdmin",
+            "ADD",
+            subject_type="serviceAccount",
+        )
+
+        _, payload = session.calls[0]
+        binding = payload["accessBindingDeltas"][0]["accessBinding"]
+        self.assertEqual(binding["roleId"], "vpc.privateAdmin")
+        self.assertEqual(binding["subject"], {"id": "service-account-1", "type": "serviceAccount"})
 
     def test_ad_md4_password_hash_matches_known_nt_hash(self):
         self.assertEqual(

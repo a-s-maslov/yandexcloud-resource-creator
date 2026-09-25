@@ -548,13 +548,16 @@ class UserCreator:
     def update_folder_access(
         self,
         folder_id: str,
-        user_id: str,
+        subject_id: str,
         role_id: str,
         action: str,
+        subject_type: str = "userAccount",
     ) -> None:
-        """Add or remove one user access binding on a folder."""
+        """Add or remove one subject access binding on a folder."""
         if action not in {"ADD", "REMOVE"}:
             raise ValueError("Folder access action must be ADD or REMOVE")
+        if subject_type not in {"userAccount", "federatedUser", "serviceAccount"}:
+            raise ValueError("Unsupported folder access subject type")
         url = f"https://resource-manager.api.cloud.yandex.net/resource-manager/v1/folders/{folder_id}:updateAccessBindings"
 
         payload = {
@@ -563,7 +566,7 @@ class UserCreator:
                     "action": action,
                     "accessBinding": {
                         "roleId": role_id,
-                        "subject": {"id": user_id, "type": "userAccount"},
+                        "subject": {"id": subject_id, "type": subject_type},
                     },
                 }
             ]
@@ -576,26 +579,27 @@ class UserCreator:
 
             if "error" in data:
                 logger.error(
-                    f"Failed to update access for user {user_id} on folder {folder_id}: {data['error']}"
+                    f"Failed to update access for subject {subject_id} on folder {folder_id}: {data['error']}"
                 )
                 raise UserCreationError(f"Access update failed: {data['error']['message']}")
 
             operation_id = data["id"]
             self.poll_operation(
                 operation_id,
-                f"folder access {action.lower()} for user {user_id} on folder {folder_id}",
+                f"folder access {action.lower()} for {subject_type} {subject_id} on folder {folder_id}",
             )
             logger.info(
-                "Folder access updated: %s user %s -> role %s -> folder %s",
+                "Folder access updated: %s %s %s -> role %s -> folder %s",
                 action,
-                user_id,
+                subject_type,
+                subject_id,
                 role_id,
                 folder_id,
             )
 
         except requests.exceptions.RequestException as e:
             logger.error(
-                f"Failed to update access for user {user_id} on folder {folder_id}: {e} {getattr(e.response, 'text', '')}"
+                f"Failed to update access for subject {subject_id} on folder {folder_id}: {e} {getattr(e.response, 'text', '')}"
             )
             raise UserCreationError(f"Access update failed: {e}")
 
